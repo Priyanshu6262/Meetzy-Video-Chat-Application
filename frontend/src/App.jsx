@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import Hero from './components/Hero';
-import Features from './components/Features';
-import HowItWorks from './components/HowItWorks';
 import Footer from './components/Footer';
+import LandingPage from './pages/LandingPage';
+import VideoChat from './pages/VideoChat';
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -25,13 +25,14 @@ function App() {
   }, [darkMode]);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-indigo-500/30 flex flex-col">
       <Navbar darkMode={darkMode} setDarkMode={setDarkMode} />
-      <main>
-        <Hero />
-        <Features />
-        <HowItWorks />
-      </main>
+      <div className="flex-1">
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/meeting/:roomId" element={<VideoChat />} />
+        </Routes>
+      </div>
       <Footer />
     </div>
   );

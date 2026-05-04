@@ -1,7 +1,36 @@
-import { motion } from 'framer-motion';
-import { Video, ArrowRight, Shield, Globe } from 'lucide-react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Video, ArrowRight, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '../context/AuthContext';
 
 const Hero = () => {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+
+  const handleStartMeeting = () => {
+    if (!currentUser) {
+      alert('Please login to start a meeting.');
+      return;
+    }
+    const roomId = uuidv4();
+    navigate(`/meeting/${roomId}`);
+  };
+
+  const handleJoinMeeting = (e) => {
+    e.preventDefault();
+    if (!currentUser) {
+      alert('Please login to join a meeting.');
+      return;
+    }
+    if (joinCode.trim()) {
+      navigate(`/meeting/${joinCode.trim()}`);
+    }
+  };
+
   return (
     <section className="relative pt-32 pb-20 overflow-hidden">
       {/* Background Decor */}
@@ -32,11 +61,17 @@ const Hero = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-500/25 group active:scale-95">
-              Start a Meeting <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            <button 
+              onClick={handleStartMeeting}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-500/25 group active:scale-95"
+            >
+              Start Meeting <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
-            <button className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-2xl font-bold text-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95">
-              Watch Demo
+            <button 
+              onClick={() => setIsJoinModalOpen(true)}
+              className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-2xl font-bold text-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95"
+            >
+              Join Meeting
             </button>
           </div>
         </motion.div>
@@ -65,6 +100,62 @@ const Hero = () => {
           </div>
         </motion.div>
       </div>
+
+      {/* Join Meeting Modal */}
+      <AnimatePresence>
+        {isJoinModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsJoinModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+            >
+              <div className="p-6 sm:p-8">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Join Meeting</h2>
+                  <button 
+                    onClick={() => setIsJoinModalOpen(false)}
+                    className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <form onSubmit={handleJoinMeeting} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Meeting Code
+                    </label>
+                    <input
+                      type="text"
+                      value={joinCode}
+                      onChange={(e) => setJoinCode(e.target.value)}
+                      placeholder="e.g. abc-defg-hij"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-slate-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full flex items-center justify-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/25 active:scale-95"
+                  >
+                    Join Now
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </section>
   );
 };
