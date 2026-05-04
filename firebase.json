@@ -1,0 +1,10 @@
+{
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Meetzy",
+        "supportEmail": "priyanshutrp4.0@gmail.com"
+      }
+    }
+  }
+}

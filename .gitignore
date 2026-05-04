@@ -22,3 +22,4 @@ frontend/dist/
 
 # Backend specific
 backend/node_modules/
+backend/serviceAccountKey.json
