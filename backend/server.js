@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const User = require('./models/User');
 const Chat = require('./models/Chat');
 const Message = require('./models/Message');
+const Call = require('./models/Call');
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/meetzy')
@@ -212,24 +213,126 @@ const getPopulatedChats = async (mongoUserId) => {
 io.on('connection', (socket) => {
   console.log('🔗 Socket connected:', socket.id);
 
-  // ── WebRTC Signaling ──────────────────────────────────────
-  socket.on('join-room', (roomId, userId) => {
-    socket.join(roomId);
-    console.log(`👤 User ${userId} (${socket.id}) joined room ${roomId}`);
+  // ── WebRTC Signaling (Video Calls) ───────────────────────
+  socket.on('call:initiate', async ({ receiverUid }) => {
+    const callerUid = socket.data.uid;
+    const callerMongoId = socket.data.mongoId;
+    if (!callerUid || !callerMongoId) return;
 
-    socket.to(roomId).emit('user-connected', userId, socket.id);
+    try {
+      const receiverSocketId = onlineSockets.get(receiverUid);
+      if (receiverSocketId) {
+        const caller = await User.findById(callerMongoId);
+        // Alert receiver
+        io.to(receiverSocketId).emit('call:incoming', {
+          callerUid,
+          callerName: caller.name,
+          callerPhoto: caller.photo
+        });
+      } else {
+        // Receiver offline
+        socket.emit('call:rejected', { reason: 'User is offline' });
+      }
+    } catch (err) {
+      console.error('Error initiating call:', err);
+    }
+  });
 
-    socket.on('offer', (payload) => {
-      io.to(payload.target).emit('offer', payload);
-    });
+  socket.on('call:accept', async ({ callerUid }) => {
+    const receiverUid = socket.data.uid;
+    const callerSocketId = onlineSockets.get(callerUid);
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('call:accepted', { receiverUid });
+    }
+  });
 
-    socket.on('answer', (payload) => {
-      io.to(payload.target).emit('answer', payload);
-    });
+  socket.on('call:reject', async ({ callerUid }) => {
+    const receiverUid = socket.data.uid;
+    const callerSocketId = onlineSockets.get(callerUid);
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('call:rejected', { reason: 'Busy' });
+    }
+  });
 
-    socket.on('ice-candidate', (incoming) => {
-      io.to(incoming.target).emit('ice-candidate', incoming);
-    });
+  socket.on('call:end', async ({ targetUid }) => {
+    const targetSocketId = onlineSockets.get(targetUid);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call:ended');
+    }
+  });
+
+  socket.on('call:signal', ({ targetUid, signalData }) => {
+    const targetSocketId = onlineSockets.get(targetUid);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call:signal', {
+        senderUid: socket.data.uid,
+        signalData
+      });
+    }
+  });
+
+  socket.on('call:timeout', async ({ targetUid }) => {
+    const callerUid = socket.data.uid;
+    const callerMongoId = socket.data.mongoId;
+    
+    // Create system message for missed call
+    try {
+      const receiver = await User.findOne({ firebaseUid: targetUid });
+      if (!receiver) return;
+
+      let chat = await Chat.findOne({
+        participants: { $all: [callerMongoId, receiver._id] }
+      });
+
+      if (chat) {
+        // create call log
+        const newCall = new Call({
+          callerId: callerMongoId,
+          receiverId: receiver._id,
+          chatId: chat._id,
+          status: 'missed'
+        });
+        await newCall.save();
+
+        const newMsg = new Message({
+          chatId: chat._id,
+          senderId: callerMongoId,
+          text: "You missed a video call",
+          type: "system_call"
+        });
+        await newMsg.save();
+
+        chat.lastMessage = newMsg._id;
+        chat.unreadCounts.set(targetUid, (chat.unreadCounts.get(targetUid) || 0) + 1);
+        await chat.save();
+
+        const msgObj = {
+          id: newMsg._id.toString(),
+          from: callerUid,
+          to: targetUid,
+          message: newMsg.text,
+          type: newMsg.type,
+          timestamp: newMsg.createdAt.getTime(),
+          replyTo: null,
+          threadId: null,
+          replyCount: 0
+        };
+
+        const targetSocketId = onlineSockets.get(targetUid);
+        if (targetSocketId) {
+          io.to(targetSocketId).emit('chat:receive', msgObj);
+          io.to(targetSocketId).emit('call:missed', { callerUid });
+          const recipientChats = await getPopulatedChats(receiver._id);
+          io.to(targetSocketId).emit('chat:init', recipientChats);
+        }
+
+        socket.emit('chat:receive', msgObj);
+        const senderChats = await getPopulatedChats(callerMongoId);
+        socket.emit('chat:init', senderChats);
+      }
+    } catch (err) {
+      console.error('Error handling missed call:', err);
+    }
   });
 
   // ── Chat: Register User ───────────────────────────────────
@@ -308,7 +411,17 @@ io.on('connection', (socket) => {
         if (replyToMsg) {
           threadId = replyToMsg.threadId || replyToMsg._id;
           // Increment replyCount on root thread message
-          await Message.findByIdAndUpdate(threadId, { $inc: { replyCount: 1 } });
+          const updatedRoot = await Message.findByIdAndUpdate(threadId, { $inc: { replyCount: 1 } }, { new: true });
+          
+          if (updatedRoot) {
+            // Broadcast the update to both users so they see the counter increase live
+            const updatePayload = { threadId: threadId.toString(), replyCount: updatedRoot.replyCount };
+            const recipientSocketId = onlineSockets.get(to);
+            if (recipientSocketId) {
+              io.to(recipientSocketId).emit('chat:message:update', updatePayload);
+            }
+            socket.emit('chat:message:update', updatePayload);
+          }
           
           populatedReplyTo = {
             id: replyToMsg._id.toString(),
@@ -338,6 +451,7 @@ io.on('connection', (socket) => {
         from: fromUid,
         to,
         message: newMsg.text,
+        type: newMsg.type,
         timestamp: newMsg.createdAt.getTime(),
         replyTo: populatedReplyTo,
         threadId: threadId ? threadId.toString() : null,
@@ -430,6 +544,7 @@ io.on('connection', (socket) => {
           from: m.senderId.toString() === mongoId.toString() ? fromUid : withUid,
           to: m.senderId.toString() === mongoId.toString() ? withUid : fromUid,
           message: m.text,
+          type: m.type,
           timestamp: m.createdAt.getTime(),
           replyTo: populatedReplyTo,
           threadId: m.threadId ? m.threadId.toString() : null,
@@ -483,6 +598,7 @@ io.on('connection', (socket) => {
           from: m.senderId.firebaseUid,
           to: m.senderId.firebaseUid === fromUid ? withUid : fromUid, // Assuming thread is 1-on-1 chat
           message: m.text,
+          type: m.type,
           timestamp: m.createdAt.getTime(),
           replyTo: populatedReplyTo,
           threadId: m.threadId ? m.threadId.toString() : null,

@@ -8,6 +8,7 @@ export const useChat = () => useContext(ChatContext);
 
 export const ChatProvider = ({ children }) => {
   const { currentUser } = useAuth();
+  const [socket, setSocket] = useState(null);
   const socketRef = useRef(null);
 
   const [contacts, setContacts] = useState([]); 
@@ -26,11 +27,12 @@ export const ChatProvider = ({ children }) => {
   useEffect(() => {
     if (!currentUser) return;
 
-    const socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
-    socketRef.current = socket;
+    const newSocket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
+    socketRef.current = newSocket;
+    setSocket(newSocket);
 
-    socket.on('connect', () => {
-      socket.emit('chat:register', {
+    newSocket.on('connect', () => {
+      newSocket.emit('chat:register', {
         uid: currentUser.uid,
         name: currentUser.displayName || currentUser.email.split('@')[0],
         photo: currentUser.photoURL || '',
@@ -38,7 +40,7 @@ export const ChatProvider = ({ children }) => {
       });
     });
 
-    socket.on('chat:init', ({ contacts, chats }) => {
+    newSocket.on('chat:init', ({ contacts, chats }) => {
       setContacts(contacts);
       setChats(chats);
       
@@ -50,11 +52,11 @@ export const ChatProvider = ({ children }) => {
       setOnlineStatus(prev => ({ ...prev, ...newStatus }));
     });
 
-    socket.on('chat:user:status', ({ uid, isOnline }) => {
+    newSocket.on('chat:user:status', ({ uid, isOnline }) => {
       setOnlineStatus(prev => ({ ...prev, [uid]: isOnline }));
     });
 
-    socket.on('chat:receive', (msg) => {
+    newSocket.on('chat:receive', (msg) => {
       const peerUid = msg.from === currentUser.uid ? msg.to : msg.from;
       setMessages(prev => {
         const existing = prev[peerUid] || [];
@@ -65,7 +67,7 @@ export const ChatProvider = ({ children }) => {
       // so unread counts and recent chats order will update automatically.
     });
 
-    socket.on('chat:typing', ({ from, isTyping }) => {
+    newSocket.on('chat:typing', ({ from, isTyping }) => {
       setTypingFrom(prev => {
         const next = new Set(prev);
         isTyping ? next.add(from) : next.delete(from);
@@ -73,17 +75,33 @@ export const ChatProvider = ({ children }) => {
       });
     });
 
-    socket.on('chat:history', ({ with: withUid, messages: history }) => {
+    newSocket.on('chat:history', ({ with: withUid, messages: history }) => {
       setMessages(prev => ({ ...prev, [withUid]: history }));
     });
 
-    socket.on('chat:thread:data', ({ threadId, messages }) => {
+    newSocket.on('chat:thread:data', ({ threadId, messages }) => {
       setThreadData(prev => ({ ...prev, [threadId]: messages }));
     });
 
+    newSocket.on('chat:message:update', ({ threadId, replyCount }) => {
+      setMessages(prev => {
+        const next = { ...prev };
+        for (const peerUid in next) {
+          next[peerUid] = next[peerUid].map(m => {
+            if (m.id === threadId) {
+              return { ...m, replyCount };
+            }
+            return m;
+          });
+        }
+        return next;
+      });
+    });
+
     return () => {
-      socket.disconnect();
+      newSocket.disconnect();
       socketRef.current = null;
+      setSocket(null);
     };
   }, [currentUser]);
 
@@ -172,6 +190,7 @@ export const ChatProvider = ({ children }) => {
       setActiveThread,
       threadData,
       getThread,
+      socket
     }}>
       {children}
     </ChatContext.Provider>

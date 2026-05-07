@@ -15,6 +15,11 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  type: {
+    type: String,
+    enum: ['text', 'system_call'],
+    default: 'text'
+  },
   replyTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Message',

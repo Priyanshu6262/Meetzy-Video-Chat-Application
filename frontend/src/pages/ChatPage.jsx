@@ -4,9 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Video, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ChatProvider, useChat } from '../context/ChatContext';
+import { CallProvider } from '../context/CallContext';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import AddUserModal from '../components/chat/AddUserModal';
+import VideoCallPopup from '../components/chat/VideoCallPopup';
 
 // Inner component that uses ChatContext
 const ChatLayout = () => {
@@ -29,6 +31,7 @@ const ChatLayout = () => {
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-950">
       
       <AddUserModal isOpen={isAddUserOpen} onClose={() => setIsAddUserOpen(false)} />
+      <VideoCallPopup />
 
       {/* ── Sidebar ─────────────────────────────────────────── */}
       {/* Desktop: always visible. Mobile: shown when mobileView === 'sidebar' */}
@@ -134,7 +137,9 @@ const ChatPage = () => {
         className="fixed inset-0 z-50"
       >
         <ChatProvider>
-          <ChatLayout />
+          <CallProvider>
+            <ChatLayout />
+          </CallProvider>
         </ChatProvider>
       </motion.div>
     </AnimatePresence>

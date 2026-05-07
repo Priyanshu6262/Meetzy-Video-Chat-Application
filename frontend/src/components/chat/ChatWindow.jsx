@@ -6,7 +6,8 @@ import EmojiPicker from './EmojiPicker';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import ConfirmModal from './ConfirmModal';
 import ThreadPopup from './ThreadPopup';
-import { Ban, Trash2, UserCircle, X } from 'lucide-react';
+import { Ban, Trash2, UserCircle, X, Video, PhoneMissed } from 'lucide-react';
+import { useCall } from '../../context/CallContext';
 
 const Avatar = ({ src, name, size = 'md' }) => {
   const dim = size === 'md' ? 'w-10 h-10' : 'w-8 h-8';
@@ -55,7 +56,26 @@ const formatMsgTime = (ts) => {
 
 import { Reply } from 'lucide-react';
 
-const MessageBubble = ({ msg, isMe, showAvatar, senderPhoto, senderName, onReply, onOpenThread }) => (
+const MessageBubble = ({ msg, isMe, showAvatar, senderPhoto, senderName, onReply, onOpenThread }) => {
+  if (msg.type === 'system_call') {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="flex justify-center w-full my-4"
+      >
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 dark:text-rose-400 px-4 py-2 rounded-full text-xs font-medium flex items-center gap-2 select-none">
+          <PhoneMissed className="w-4 h-4" />
+          {msg.message}
+          <span className="text-rose-500/60 dark:text-rose-400/60 ml-2">
+            {formatMsgTime(msg.timestamp)}
+          </span>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
   <motion.div
     initial={{ opacity: 0, y: 8, scale: 0.97 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -126,7 +146,8 @@ const MessageBubble = ({ msg, isMe, showAvatar, senderPhoto, senderName, onReply
       </div>
     </div>
   </motion.div>
-);
+  );
+};
 
 const EmptyState = () => (
   <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-400 select-none">
@@ -149,6 +170,7 @@ const EmptyState = () => (
 
 const ChatWindow = ({ onBackClick }) => {
   const { selectedUser, messages, typingFrom, sendMessage, setTyping, currentUser, clearChat, blockUser, replyingTo, setReplyingTo, activeThread, setActiveThread } = useChat();
+  const { initiateCall } = useCall();
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -162,6 +184,13 @@ const ChatWindow = ({ onBackClick }) => {
   const typingTimeout = useRef(null);
 
   const conv = selectedUser ? (messages[selectedUser.uid] || []) : [];
+  
+  // Filter messages to hide threaded replies that exceed threshold
+  const hiddenThreadIds = new Set(
+    conv.filter(m => m.replyCount >= 4).map(m => m.id)
+  );
+  const visibleConv = conv.filter(m => !m.threadId || !hiddenThreadIds.has(m.threadId));
+
   const isTyping = selectedUser && typingFrom.has(selectedUser.uid);
 
   // Auto-scroll to bottom
@@ -307,14 +336,24 @@ const ChatWindow = ({ onBackClick }) => {
           </AnimatePresence>
         </div>
 
-        <div className="relative" ref={menuRef}>
+        <div className="flex items-center gap-1">
           <button 
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            onClick={() => initiateCall(selectedUser)}
             className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800
-                       text-slate-500 dark:text-slate-400 transition-colors"
+                       text-slate-500 dark:text-slate-400 hover:text-indigo-500 transition-colors"
+            title="Video Call"
           >
-            <MoreVertical className="w-5 h-5" />
+            <Video className="w-5 h-5" />
           </button>
+          
+          <div className="relative" ref={menuRef}>
+            <button 
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800
+                         text-slate-500 dark:text-slate-400 transition-colors"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
           
           <AnimatePresence>
             {isMenuOpen && (
@@ -351,11 +390,12 @@ const ChatWindow = ({ onBackClick }) => {
           </AnimatePresence>
         </div>
       </div>
+    </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-0.5
                       scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
-        {conv.length === 0 ? (
+        {visibleConv.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-400">
             <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-900/20
                             flex items-center justify-center">
@@ -368,9 +408,9 @@ const ChatWindow = ({ onBackClick }) => {
           </div>
         ) : (
           <>
-            {conv.map((msg, i) => {
+            {visibleConv.map((msg, i) => {
               const isMe = msg.from === currentUser?.uid;
-              const nextMsg = conv[i + 1];
+              const nextMsg = visibleConv[i + 1];
               const showAvatar = !isMe && (!nextMsg || nextMsg.from !== msg.from);
               return (
                 <MessageBubble
