@@ -151,21 +151,59 @@ const getPopulatedChats = async (mongoUserId) => {
   const user = await User.findById(mongoUserId).populate('addedContacts');
   if (!user) return { contacts: [], chats: [] };
 
-  const chats = await Chat.find({ participants: mongoUserId })
+  const blockedList = user.blockedUsers || [];
+  const contactSettings = user.contactSettings || new Map();
+
+  const contacts = user.addedContacts
+    .filter(c => !blockedList.includes(c.firebaseUid))
+    .map(c => {
+      const settings = contactSettings.get(c.firebaseUid) || {};
+      return {
+        uid: c.firebaseUid,
+        name: settings.customName || c.name,
+        originalName: c.name,
+        email: c.email,
+        photo: c.photo,
+        isOnline: c.isOnline,
+        nickname: settings.nickname,
+        customLabel: settings.customLabel
+      };
+    });
+
+  let chats = await Chat.find({ participants: mongoUserId })
     .populate('participants', 'firebaseUid name email photo isOnline')
     .populate('lastMessage')
     .sort({ updatedAt: -1 });
 
-  return {
-    contacts: user.addedContacts.map(c => ({
-      uid: c.firebaseUid,
-      name: c.name,
-      email: c.email,
-      photo: c.photo,
-      isOnline: c.isOnline
-    })),
-    chats
-  };
+  chats = chats.map(chat => {
+    const otherParticipant = chat.participants.find(p => p._id.toString() !== mongoUserId.toString());
+    if (otherParticipant && blockedList.includes(otherParticipant.firebaseUid)) {
+      return null;
+    }
+    
+    const chatObj = chat.toObject();
+    chatObj.participants = chatObj.participants.map(p => {
+      if (p._id.toString() !== mongoUserId.toString()) {
+        const settings = contactSettings.get(p.firebaseUid) || {};
+        p.originalName = p.name;
+        p.name = settings.customName || p.name;
+        p.nickname = settings.nickname;
+        p.customLabel = settings.customLabel;
+      }
+      return p;
+    });
+
+    if (otherParticipant) {
+      const settings = contactSettings.get(otherParticipant.firebaseUid) || {};
+      if (settings.clearedChatAt && chatObj.lastMessage && new Date(chatObj.lastMessage.createdAt) < new Date(settings.clearedChatAt)) {
+         chatObj.lastMessage = null;
+      }
+    }
+
+    return chatObj;
+  }).filter(c => c !== null);
+
+  return { contacts, chats };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -227,7 +265,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat: Send Message ────────────────────────────────────
-  socket.on('chat:send', async ({ to, message, timestamp }) => {
+  socket.on('chat:send', async ({ to, message, timestamp, replyTo }) => {
     const fromUid = socket.data.uid;
     const mongoId = socket.data.mongoId;
     if (!fromUid || !mongoId) return;
@@ -235,6 +273,16 @@ io.on('connection', (socket) => {
     try {
       const recipient = await User.findOne({ firebaseUid: to });
       if (!recipient) return;
+
+      const sender = await User.findById(mongoId);
+      
+      // Block Check
+      if (sender.blockedUsers && sender.blockedUsers.includes(to)) {
+        return; // sender blocked recipient
+      }
+      if (recipient.blockedUsers && recipient.blockedUsers.includes(fromUid)) {
+        return; // recipient blocked sender
+      }
 
       // Find or create chat
       let chat = await Chat.findOne({
@@ -251,11 +299,32 @@ io.on('connection', (socket) => {
         });
       }
 
+      let threadId = null;
+      let replyToMsg = null;
+      let populatedReplyTo = null;
+
+      if (replyTo) {
+        replyToMsg = await Message.findById(replyTo).populate('senderId', 'name');
+        if (replyToMsg) {
+          threadId = replyToMsg.threadId || replyToMsg._id;
+          // Increment replyCount on root thread message
+          await Message.findByIdAndUpdate(threadId, { $inc: { replyCount: 1 } });
+          
+          populatedReplyTo = {
+            id: replyToMsg._id.toString(),
+            text: replyToMsg.text,
+            senderName: replyToMsg.senderId.name
+          };
+        }
+      }
+
       // Create message
       const newMsg = new Message({
         chatId: chat._id,
         senderId: mongoId,
-        text: message
+        text: message,
+        replyTo: replyToMsg ? replyToMsg._id : null,
+        threadId: threadId
       });
       await newMsg.save();
 
@@ -270,6 +339,9 @@ io.on('connection', (socket) => {
         to,
         message: newMsg.text,
         timestamp: newMsg.createdAt.getTime(),
+        replyTo: populatedReplyTo,
+        threadId: threadId ? threadId.toString() : null,
+        replyCount: 0
       };
 
       // Relay to recipient if online
@@ -326,15 +398,44 @@ io.on('connection', (socket) => {
       chat.unreadCounts.set(fromUid, 0);
       await chat.save();
 
-      const messages = await Message.find({ chatId: chat._id }).sort({ createdAt: 1 }).limit(100);
+      // Check for clearedChatAt
+      const callerUser = await User.findById(mongoId);
+      const settings = callerUser.contactSettings ? callerUser.contactSettings.get(withUid) : null;
       
-      const formattedHistory = messages.map(m => ({
-        id: m._id.toString(),
-        from: m.senderId.toString() === mongoId.toString() ? fromUid : withUid,
-        to: m.senderId.toString() === mongoId.toString() ? withUid : fromUid,
-        message: m.text,
-        timestamp: m.createdAt.getTime()
-      }));
+      const query = { chatId: chat._id };
+      if (settings && settings.clearedChatAt) {
+        query.createdAt = { $gte: settings.clearedChatAt };
+      }
+
+      const messages = await Message.find(query)
+        .sort({ createdAt: 1 })
+        .limit(100)
+        .populate({
+          path: 'replyTo',
+          populate: { path: 'senderId', select: 'name' }
+        });
+      
+      const formattedHistory = messages.map(m => {
+        let populatedReplyTo = null;
+        if (m.replyTo) {
+          populatedReplyTo = {
+            id: m.replyTo._id.toString(),
+            text: m.replyTo.text,
+            senderName: m.replyTo.senderId ? m.replyTo.senderId.name : 'Unknown'
+          };
+        }
+
+        return {
+          id: m._id.toString(),
+          from: m.senderId.toString() === mongoId.toString() ? fromUid : withUid,
+          to: m.senderId.toString() === mongoId.toString() ? withUid : fromUid,
+          message: m.text,
+          timestamp: m.createdAt.getTime(),
+          replyTo: populatedReplyTo,
+          threadId: m.threadId ? m.threadId.toString() : null,
+          replyCount: m.replyCount || 0
+        };
+      });
 
       socket.emit('chat:history', { with: withUid, messages: formattedHistory });
       
@@ -344,6 +445,122 @@ io.on('connection', (socket) => {
 
     } catch (err) {
       console.error('Error fetching history:', err);
+    }
+  });
+
+  // ── Chat: Get Thread History ──────────────────────────────
+  socket.on('chat:thread:get', async ({ threadId, withUid }) => {
+    const fromUid = socket.data.uid;
+    const mongoId = socket.data.mongoId;
+    if (!fromUid || !mongoId || !threadId) return;
+
+    try {
+      // Find the root message and all replies
+      const rootMsg = await Message.findById(threadId).populate('senderId', 'firebaseUid name');
+      if (!rootMsg) return;
+
+      const replies = await Message.find({ threadId: threadId })
+        .sort({ createdAt: 1 })
+        .populate('senderId', 'firebaseUid name')
+        .populate({
+          path: 'replyTo',
+          populate: { path: 'senderId', select: 'name' }
+        });
+
+      const allThreadMsgs = [rootMsg, ...replies].filter((v, i, a) => a.findIndex(t => (t._id.toString() === v._id.toString())) === i);
+
+      const formattedThread = allThreadMsgs.map(m => {
+        let populatedReplyTo = null;
+        if (m.replyTo) {
+          populatedReplyTo = {
+            id: m.replyTo._id.toString(),
+            text: m.replyTo.text,
+            senderName: m.replyTo.senderId ? m.replyTo.senderId.name : 'Unknown'
+          };
+        }
+        return {
+          id: m._id.toString(),
+          from: m.senderId.firebaseUid,
+          to: m.senderId.firebaseUid === fromUid ? withUid : fromUid, // Assuming thread is 1-on-1 chat
+          message: m.text,
+          timestamp: m.createdAt.getTime(),
+          replyTo: populatedReplyTo,
+          threadId: m.threadId ? m.threadId.toString() : null,
+          replyCount: m.replyCount || 0,
+          senderName: m.senderId.name
+        };
+      });
+
+      socket.emit('chat:thread:data', { threadId, messages: formattedThread });
+    } catch (err) {
+      console.error('Error fetching thread:', err);
+    }
+  });
+
+  // ── Chat: Settings Update ─────────────────────────────────
+  socket.on('chat:settings:update', async ({ targetUid, customName, nickname, customLabel }) => {
+    const mongoId = socket.data.mongoId;
+    if (!mongoId) return;
+    try {
+      const user = await User.findById(mongoId);
+      if (!user) return;
+      
+      const currentSettings = user.contactSettings.get(targetUid) || {};
+      user.contactSettings.set(targetUid, {
+        ...currentSettings,
+        customName: customName !== undefined ? customName : currentSettings.customName,
+        nickname: nickname !== undefined ? nickname : currentSettings.nickname,
+        customLabel: customLabel !== undefined ? customLabel : currentSettings.customLabel
+      });
+      await user.save();
+      
+      const updatedChats = await getPopulatedChats(mongoId);
+      socket.emit('chat:init', updatedChats);
+    } catch (err) {
+      console.error('Error updating chat settings:', err);
+    }
+  });
+
+  // ── Chat: Clear Chat ──────────────────────────────────────
+  socket.on('chat:clear', async ({ targetUid }) => {
+    const mongoId = socket.data.mongoId;
+    if (!mongoId) return;
+    try {
+      const user = await User.findById(mongoId);
+      if (!user) return;
+      
+      const currentSettings = user.contactSettings.get(targetUid) || {};
+      user.contactSettings.set(targetUid, {
+        ...currentSettings,
+        clearedChatAt: new Date()
+      });
+      await user.save();
+      
+      const updatedChats = await getPopulatedChats(mongoId);
+      socket.emit('chat:init', updatedChats);
+      socket.emit('chat:history', { with: targetUid, messages: [] });
+    } catch (err) {
+      console.error('Error clearing chat:', err);
+    }
+  });
+
+  // ── Chat: Block User ──────────────────────────────────────
+  socket.on('chat:block', async ({ targetUid }) => {
+    const mongoId = socket.data.mongoId;
+    if (!mongoId) return;
+    try {
+      const user = await User.findById(mongoId);
+      if (!user) return;
+      
+      if (!user.blockedUsers.includes(targetUid)) {
+        user.blockedUsers.push(targetUid);
+        await user.save();
+      }
+      
+      const updatedChats = await getPopulatedChats(mongoId);
+      socket.emit('chat:init', updatedChats);
+    } catch (err) {
+      console.error('Error blocking user:', err);
     }
   });
 

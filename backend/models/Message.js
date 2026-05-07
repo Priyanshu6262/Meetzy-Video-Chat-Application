@@ -14,6 +14,20 @@ const messageSchema = new mongoose.Schema({
   text: {
     type: String,
     required: true
+  },
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null
+  },
+  threadId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null
+  },
+  replyCount: {
+    type: Number,
+    default: 0
   }
 }, { timestamps: true });
 

@@ -16,6 +16,9 @@ export const ChatProvider = ({ children }) => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState({});
   const [typingFrom, setTypingFrom] = useState(new Set());
+  const [activeThread, setActiveThread] = useState(null);
+  const [threadData, setThreadData] = useState({});
+  const [replyingTo, setReplyingTo] = useState(null);
 
   const selectedUserRef = useRef(selectedUser);
   useEffect(() => { selectedUserRef.current = selectedUser; }, [selectedUser]);
@@ -74,6 +77,10 @@ export const ChatProvider = ({ children }) => {
       setMessages(prev => ({ ...prev, [withUid]: history }));
     });
 
+    socket.on('chat:thread:data', ({ threadId, messages }) => {
+      setThreadData(prev => ({ ...prev, [threadId]: messages }));
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -97,13 +104,20 @@ export const ChatProvider = ({ children }) => {
     selectUser(user);
   }, [selectUser]);
 
-  const sendMessage = useCallback((text) => {
+  const sendMessage = useCallback((text, replyToId = null) => {
     if (!socketRef.current || !selectedUserRef.current || !text.trim()) return;
     socketRef.current.emit('chat:send', {
       to: selectedUserRef.current.uid,
       message: text.trim(),
       timestamp: Date.now(),
+      replyTo: replyToId,
     });
+    setReplyingTo(null); // Reset reply state after sending
+  }, []);
+
+  const getThread = useCallback((threadId) => {
+    if (!socketRef.current || !selectedUserRef.current) return;
+    socketRef.current.emit('chat:thread:get', { threadId, withUid: selectedUserRef.current.uid });
   }, []);
 
   const setTyping = useCallback((isTyping) => {
@@ -112,6 +126,24 @@ export const ChatProvider = ({ children }) => {
       to: selectedUserRef.current.uid,
       isTyping,
     });
+  }, []);
+
+  const updateContactSettings = useCallback(({ targetUid, customName, nickname, customLabel }) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit('chat:settings:update', { targetUid, customName, nickname, customLabel });
+  }, []);
+
+  const clearChat = useCallback(({ targetUid }) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit('chat:clear', { targetUid });
+  }, []);
+
+  const blockUser = useCallback(({ targetUid }) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit('chat:block', { targetUid });
+    if (selectedUserRef.current?.uid === targetUid) {
+      setSelectedUser(null);
+    }
   }, []);
 
   // Compute total unread for header badge
@@ -127,10 +159,19 @@ export const ChatProvider = ({ children }) => {
       addContact,
       messages,
       typingFrom,
-      unreadTotal, // For navigation badge if any
+      unreadTotal,
       sendMessage,
       setTyping,
+      updateContactSettings,
+      clearChat,
+      blockUser,
       currentUser,
+      replyingTo,
+      setReplyingTo,
+      activeThread,
+      setActiveThread,
+      threadData,
+      getThread,
     }}>
       {children}
     </ChatContext.Provider>
