@@ -2,13 +2,24 @@ const admin = require('firebase-admin');
 const { initializeApp } = require('firebase/app');
 const dotenv = require('dotenv');
 const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
 // 1. Initialize Firebase Admin SDK
 try {
-  if (fs.existsSync('./serviceAccountKey.json')) {
-    const serviceAccount = require('./serviceAccountKey.json');
+  const serviceAccountPath = path.join(__dirname, '../serviceAccountKey.json');
+  
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    // 🚀 Production: Decode Base64 from environment variable
+    const decodedKey = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8');
+    const serviceAccount = JSON.parse(decodedKey);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('Firebase Admin initialized with Base64 environment variable');
+  } else if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = require(serviceAccountPath);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
