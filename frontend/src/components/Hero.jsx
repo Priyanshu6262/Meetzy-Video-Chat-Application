@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, ArrowRight, X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
 
 const Hero = () => {
@@ -11,13 +10,12 @@ const Hero = () => {
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
 
-  const handleStartMeeting = () => {
+  const handleStartChat = () => {
     if (!currentUser) {
-      alert('Please login to start a meeting.');
+      alert('Please login to start chatting.');
       return;
     }
-    const roomId = uuidv4();
-    navigate(`/meeting/${roomId}`);
+    navigate('/chat');
   };
 
   const handleJoinMeeting = (e) => {
@@ -62,10 +60,10 @@ const Hero = () => {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button 
-              onClick={handleStartMeeting}
+              onClick={handleStartChat}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-500/25 group active:scale-95"
             >
-              Start Meeting <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              Start Chat <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
             <button 
               onClick={() => setIsJoinModalOpen(true)}
@@ -82,21 +80,18 @@ const Hero = () => {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="mt-20 relative mx-auto max-w-5xl"
         >
-          <div className="rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl bg-white dark:bg-slate-900 aspect-video flex items-center justify-center group">
-            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/20 to-blue-500/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-            <div className="relative z-10 text-center">
-              <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-2xl animate-bounce">
-                <Video className="w-10 h-10 text-white" />
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 font-medium">Click to see Meetzy in action</p>
-            </div>
-            
-            {/* UI Mockup Elements */}
-            <div className="absolute bottom-6 left-6 flex gap-2">
-              <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse"></div>
-              <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse delay-75"></div>
-              <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse delay-150"></div>
-            </div>
+          <div className="p-8 md:p-12 bg-indigo-600 rounded-[3rem] text-center text-white relative overflow-hidden shadow-2xl shadow-indigo-500/40">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2"></div>
+            <h3 className="text-3xl md:text-4xl font-bold mb-6">Ready to experience Meetzy?</h3>
+            <p className="text-indigo-100 mb-10 text-lg max-w-xl mx-auto">
+              Join thousands of teams already using Meetzy for their daily collaboration needs.
+            </p>
+            <button
+              onClick={handleStartChat}
+              className="px-10 py-4 bg-white text-indigo-600 rounded-2xl font-bold text-lg hover:bg-indigo-50 transition-colors shadow-lg active:scale-95"
+            >
+              Start Chat
+            </button>
           </div>
         </motion.div>
       </div>

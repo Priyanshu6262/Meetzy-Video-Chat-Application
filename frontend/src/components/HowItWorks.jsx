@@ -58,17 +58,7 @@ const HowItWorks = () => {
             ))}
           </div>
         </div>
-        
-        <div className="mt-24 p-8 md:p-12 bg-indigo-600 rounded-[3rem] text-center text-white relative overflow-hidden shadow-2xl shadow-indigo-500/40">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2"></div>
-          <h3 className="text-3xl md:text-4xl font-bold mb-6">Ready to experience Meetzy?</h3>
-          <p className="text-indigo-100 mb-10 text-lg max-w-xl mx-auto">
-            Join thousands of teams already using Meetzy for their daily collaboration needs.
-          </p>
-          <button className="px-10 py-4 bg-white text-indigo-600 rounded-2xl font-bold text-lg hover:bg-indigo-50 transition-colors shadow-lg active:scale-95">
-            Start Free Meeting
-          </button>
-        </div>
+
       </div>
     </section>
   );

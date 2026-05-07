@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import VideoChat from './pages/VideoChat';
+import ChatPage from './pages/ChatPage';
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -31,6 +32,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/meeting/:roomId" element={<VideoChat />} />
+          <Route path="/chat" element={<ChatPage />} />
         </Routes>
       </div>
       <Footer />
