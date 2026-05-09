@@ -14,11 +14,15 @@ const authenticateGoogleUser = async (req, res) => {
 
     // Upsert User in MongoDB
     let user = await User.findOne({ firebaseUid: uid });
+    
+    // Provide a fallback email if it's missing from the token
+    const safeEmail = email || `${uid}@meetzy.local`;
+    
     if (!user) {
       user = new User({
         firebaseUid: uid,
-        email,
-        name: name || email.split('@')[0],
+        email: safeEmail,
+        name: name || safeEmail.split('@')[0],
         photo: picture || '',
         isOnline: true
       });
