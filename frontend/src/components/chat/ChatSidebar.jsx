@@ -69,7 +69,7 @@ const ChatSidebar = ({ isMobileOpen, onClose }) => {
         // But otherParticipant._id is also an ObjectId.
         const isMe = chat.lastMessage.senderId?.toString() !== otherParticipant._id?.toString();
         existing.lastMessage = {
-          text: isMe ? `You: ${chat.lastMessage.text}` : chat.lastMessage.text,
+          text: isMe ? `You: ${chat.lastMessage.text}` : `${otherParticipant.name}: ${chat.lastMessage.text}`,
           time: new Date(chat.lastMessage.createdAt).getTime()
         };
         existing.lastMessageTime = existing.lastMessage.time;

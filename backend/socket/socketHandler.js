@@ -69,7 +69,25 @@ const socketHandler = (io) => {
   io.on('connection', (socket) => {
     console.log('🔗 Socket connected:', socket.id);
 
-    // ── WebRTC Signaling (Video Calls) ───────────────────────
+    // ── WebRTC Signaling (Room-based Video Calls) ────────────────
+    socket.on('join-room', (roomId, userId) => {
+      socket.join(roomId);
+      socket.to(roomId).emit('user-connected', userId, socket.id);
+    });
+
+    socket.on('offer', (payload) => {
+      io.to(payload.target).emit('offer', payload);
+    });
+
+    socket.on('answer', (payload) => {
+      io.to(payload.target).emit('answer', payload);
+    });
+
+    socket.on('ice-candidate', (payload) => {
+      io.to(payload.target).emit('ice-candidate', payload);
+    });
+
+    // ── WebRTC Signaling (Direct Video Calls) ───────────────────────
     socket.on('call:initiate', async ({ receiverUid }) => {
       const callerUid = socket.data.uid;
       const callerMongoId = socket.data.mongoId;

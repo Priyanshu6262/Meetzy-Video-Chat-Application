@@ -3,19 +3,24 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import InlineVideoChat from './InlineVideoChat';
 
 const Hero = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
+  const [isMeetingActive, setIsMeetingActive] = useState(false);
+  const [activeRoomId, setActiveRoomId] = useState('');
 
   const handleStartChat = () => {
     if (!currentUser) {
-      alert('Please login to start chatting.');
+      alert('Please login to create a meeting.');
       return;
     }
-    navigate('/chat');
+    const newRoomId = Math.random().toString(36).substring(2, 8);
+    setActiveRoomId(newRoomId);
+    setIsMeetingActive(true);
   };
 
   const handleJoinMeeting = (e) => {
@@ -25,7 +30,9 @@ const Hero = () => {
       return;
     }
     if (joinCode.trim()) {
-      navigate(`/meeting/${joinCode.trim()}`);
+      setActiveRoomId(joinCode.trim());
+      setIsMeetingActive(true);
+      setIsJoinModalOpen(false);
     }
   };
 
@@ -37,12 +44,27 @@ const Hero = () => {
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 blur-3xl rounded-full"></div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+        <AnimatePresence mode="wait">
+          {isMeetingActive ? (
+            <motion.div
+              key="video-chat"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -20 }}
+              transition={{ duration: 0.5 }}
+              className="mt-4 mb-16"
+            >
+              <InlineVideoChat roomId={activeRoomId} onClose={() => setIsMeetingActive(false)} />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="hero-content"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.6 }}
+            >
           <span className="inline-block px-4 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-sm font-semibold mb-6 border border-indigo-100 dark:border-indigo-800">
             Secure • Reliable • Fast
           </span>
@@ -73,7 +95,11 @@ const Hero = () => {
             </button>
           </div>
         </motion.div>
+        )}
+      </AnimatePresence>
 
+      <AnimatePresence>
+        {!isMeetingActive && (
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -87,13 +113,15 @@ const Hero = () => {
               Join thousands of teams already using Meetzy for their daily collaboration needs.
             </p>
             <button
-              onClick={handleStartChat}
+              onClick={() => navigate('/chat')}
               className="px-10 py-4 bg-white text-indigo-600 rounded-2xl font-bold text-lg hover:bg-indigo-50 transition-colors shadow-lg active:scale-95"
             >
-              Create Meeting
+              Start Chat
             </button>
           </div>
         </motion.div>
+        )}
+      </AnimatePresence>
       </div>
 
       {/* Join Meeting Modal */}
