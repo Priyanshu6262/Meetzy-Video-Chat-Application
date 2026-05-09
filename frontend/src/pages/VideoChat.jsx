@@ -36,7 +36,7 @@ const VideoChat = () => {
     }
 
     let isMounted = true;
-    const socket = io('http://localhost:5000');
+    const socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
     socketRef.current = socket;
     
     const initMedia = async () => {

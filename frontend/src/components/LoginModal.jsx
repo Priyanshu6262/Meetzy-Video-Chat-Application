@@ -20,7 +20,7 @@ const LoginModal = ({ isOpen, onClose }) => {
       const idToken = await result.user.getIdToken();
       
       // 3. Send the token to our Node.js backend
-      const response = await fetch('http://localhost:5000/api/auth/google', {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}/api/auth/google`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
