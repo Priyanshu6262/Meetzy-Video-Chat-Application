@@ -63,7 +63,7 @@ const Hero = () => {
               onClick={handleStartChat}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-500/25 group active:scale-95"
             >
-              Start Chat <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              Create Meeting <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
             <button 
               onClick={() => setIsJoinModalOpen(true)}
@@ -90,7 +90,7 @@ const Hero = () => {
               onClick={handleStartChat}
               className="px-10 py-4 bg-white text-indigo-600 rounded-2xl font-bold text-lg hover:bg-indigo-50 transition-colors shadow-lg active:scale-95"
             >
-              Start Chat
+              Create Meeting
             </button>
           </div>
         </motion.div>
