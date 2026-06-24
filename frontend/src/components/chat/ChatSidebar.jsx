@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, MessageSquare } from 'lucide-react';
+import { Search, MessageSquare, Settings } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
+import UserSettingsModal from './UserSettingsModal';
 
 const Avatar = ({ src, name, size = 'md' }) => {
   const dim = size === 'md' ? 'w-12 h-12' : 'w-10 h-10';
@@ -29,6 +30,7 @@ const Avatar = ({ src, name, size = 'md' }) => {
 const ChatSidebar = ({ isMobileOpen, onClose }) => {
   const { contacts, chats, onlineStatus, selectedUser, selectUser, currentUser } = useChat();
   const [search, setSearch] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Merge contacts and chats uniquely by uid
   const allUsers = useMemo(() => {
@@ -227,20 +229,35 @@ const ChatSidebar = ({ isMobileOpen, onClose }) => {
       {/* Current user footer */}
       {currentUser && (
         <div className="p-3 border-t border-slate-100 dark:border-slate-800
-                        bg-slate-50 dark:bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-shrink-0">
-              <Avatar src={currentUser.photoURL} name={currentUser.displayName || currentUser.email} size="sm" />
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full
-                               bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                        bg-slate-50 dark:bg-slate-900/50 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative flex-shrink-0">
+                <Avatar src={currentUser.photoURL} name={currentUser.displayName || currentUser.email} size="sm" />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full
+                                 bg-emerald-500 border-2 border-white dark:border-slate-900" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                  {currentUser.displayName || currentUser.email.split('@')[0]}
+                </p>
+                <p className="text-xs text-emerald-500">You • Online</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                {currentUser.displayName || currentUser.email.split('@')[0]}
-              </p>
-              <p className="text-xs text-emerald-500">You • Online</p>
-            </div>
+
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
+
+          <UserSettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+          />
         </div>
       )}
     </div>

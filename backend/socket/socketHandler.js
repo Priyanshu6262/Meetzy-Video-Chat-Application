@@ -2,8 +2,22 @@ const User = require('../models/User');
 const Chat = require('../models/Chat');
 const Message = require('../models/Message');
 const Call = require('../models/Call');
+const geminiService = require('../services/geminiService');
+const AutoReplyLog = require('../models/AutoReplyLog');
 
 const onlineSockets = new Map();
+const suggestionCache = new Map(); // key: chatId, value: { lastMessageId, suggestions }
+
+const setSuggestionCache = (chatId, lastMessageId, suggestions) => {
+  if (suggestionCache.size > 1000) {
+    const firstKey = suggestionCache.keys().next().value;
+    suggestionCache.delete(firstKey);
+  }
+  suggestionCache.set(chatId.toString(), {
+    lastMessageId: lastMessageId.toString(),
+    suggestions
+  });
+};
 
 // Helper to get all populated chat info for a user
 const getPopulatedChats = async (mongoUserId) => {
@@ -347,6 +361,116 @@ const socketHandler = (io) => {
         const senderChats = await getPopulatedChats(mongoId);
         socket.emit('chat:init', senderChats);
 
+        // ── Auto Reply Automation Trigger ──────────────────────────
+        // Only trigger if recipient exists and has auto-reply enabled, and this incoming message is NOT already an auto-reply
+        if (recipient.autoReplyEnabled && !newMsg.isAutoReply) {
+          console.log(`🤖 Auto-reply triggered for recipient user: ${recipient.name} (${to})`);
+
+          (async () => {
+            try {
+              // 1. Fetch recent chat history
+              const dbMessages = await Message.find({ chatId: chat._id })
+                .sort({ createdAt: -1 })
+                .limit(15)
+                .populate('senderId', 'name');
+
+              dbMessages.reverse();
+
+              const messagesForAI = dbMessages.map(m => ({
+                senderName: m.senderId ? m.senderId.name : 'Unknown',
+                text: m.text
+              }));
+
+              // 2. Call Gemini Auto Reply
+              const result = await geminiService.generateAutoReply(
+                messagesForAI,
+                recipient.autoReplyStyle || 'friendly',
+                recipient.autoReplyLanguage || 'auto'
+              );
+
+              if (result && result.shouldReply && result.replyText) {
+                // 3. Timing Delay (2.5 seconds to feel human-like)
+                await new Promise(resolve => setTimeout(resolve, 2500));
+
+                // 4. Save auto reply to DB
+                const autoMsg = new Message({
+                  chatId: chat._id,
+                  senderId: recipient._id, // sent by Bob
+                  text: result.replyText,
+                  isAutoReply: true
+                });
+                await autoMsg.save();
+
+                // 5. Update Chat last message and recipient unread count
+                chat.lastMessage = autoMsg._id;
+                chat.unreadCounts.set(fromUid, (chat.unreadCounts.get(fromUid) || 0) + 1); // Alice gets 1 unread
+                await chat.save();
+
+                const autoMsgObj = {
+                  id: autoMsg._id.toString(),
+                  from: to, // Bob's firebaseUid
+                  to: fromUid, // Alice's firebaseUid
+                  message: autoMsg.text,
+                  type: autoMsg.type,
+                  timestamp: autoMsg.createdAt.getTime(),
+                  replyTo: null,
+                  threadId: null,
+                  replyCount: 0
+                };
+
+                // 6. Emit to sockets
+                // Send to Alice (sender of the original message)
+                const senderSocketId = onlineSockets.get(fromUid);
+                if (senderSocketId) {
+                  io.to(senderSocketId).emit('chat:receive', autoMsgObj);
+                  const senderChats = await getPopulatedChats(mongoId);
+                  io.to(senderSocketId).emit('chat:init', senderChats);
+                }
+
+                // Send to Bob (recipient of the original message who is auto-replying)
+                const recipientSocketId = onlineSockets.get(to);
+                if (recipientSocketId) {
+                  io.to(recipientSocketId).emit('chat:receive', autoMsgObj);
+                  const recipientChats = await getPopulatedChats(recipient._id);
+                  io.to(recipientSocketId).emit('chat:init', recipientChats);
+                }
+
+                // 7. Save sent log
+                await new AutoReplyLog({
+                  userId: recipient._id,
+                  chatId: chat._id,
+                  incomingMessage: message,
+                  outgoingReply: result.replyText,
+                  status: 'sent',
+                  reason: 'Auto-reply generated and sent successfully'
+                }).save();
+                console.log(`🤖 Auto-reply successfully sent from ${recipient.name} to ${sender.name}`);
+
+              } else {
+                // Save skipped log
+                await new AutoReplyLog({
+                  userId: recipient._id,
+                  chatId: chat._id,
+                  incomingMessage: message,
+                  status: 'skipped',
+                  reason: result ? 'AI decided to skip reply' : 'No reply text returned'
+                }).save();
+                console.log(`🤖 Auto-reply skipped for recipient: ${recipient.name}`);
+              }
+            } catch (err) {
+              console.error('❌ Error executing auto-reply:', err);
+              // Save error log
+              await new AutoReplyLog({
+                userId: recipient._id,
+                chatId: chat._id,
+                incomingMessage: message,
+                status: 'error',
+                reason: err.message
+              }).save();
+            }
+          })();
+        }
+
       } catch (err) {
         console.error('Error sending message:', err);
       }
@@ -434,6 +558,94 @@ const socketHandler = (io) => {
 
       } catch (err) {
         console.error('Error fetching history:', err);
+      }
+    });
+
+    // ── Chat: Get AI Reply Suggestions ────────────────────────
+    socket.on('chat:suggestions:get', async ({ withUid }) => {
+      const fromUid = socket.data.uid;
+      const mongoId = socket.data.mongoId;
+      console.log('📥 Received chat:suggestions:get from:', fromUid, 'for:', withUid);
+      if (!fromUid || !mongoId || !withUid) {
+        console.warn('❌ Missing credentials/UIDs in suggestions request');
+        return;
+      }
+
+      try {
+        // 1. Check user settings
+        const user = await User.findById(mongoId);
+        if (!user) {
+          console.warn('❌ User not found in DB:', mongoId);
+          socket.emit('chat:suggestions', { withUid, suggestions: null });
+          return;
+        }
+        if (user.aiReplySuggestions === false) {
+          console.log('ℹ️ AI suggestions are disabled for user:', fromUid);
+          socket.emit('chat:suggestions', { withUid, suggestions: null });
+          return;
+        }
+
+        // 2. Find recipient and chat
+        const recipient = await User.findOne({ firebaseUid: withUid });
+        if (!recipient) {
+          console.warn('❌ Recipient not found:', withUid);
+          return;
+        }
+
+        const chat = await Chat.findOne({
+          participants: { $all: [mongoId, recipient._id] }
+        });
+
+        if (!chat) {
+          console.warn('❌ Chat not found between:', fromUid, 'and', withUid);
+          socket.emit('chat:suggestions', { withUid, suggestions: null });
+          return;
+        }
+
+        // 3. Find the last message
+        const lastMessage = await Message.findOne({ chatId: chat._id }).sort({ createdAt: -1 });
+        if (!lastMessage) {
+          console.log('ℹ️ No messages in chat yet');
+          socket.emit('chat:suggestions', { withUid, suggestions: null });
+          return;
+        }
+
+        // 4. Check cache
+        const cached = suggestionCache.get(chat._id.toString());
+        if (cached && cached.lastMessageId === lastMessage._id.toString()) {
+          console.log('⚡ Returning cached suggestions for chat:', chat._id);
+          socket.emit('chat:suggestions', { withUid, suggestions: cached.suggestions });
+          return;
+        }
+
+        // 5. Query last 15 messages for context
+        const dbMessages = await Message.find({ chatId: chat._id })
+          .sort({ createdAt: -1 })
+          .limit(15)
+          .populate('senderId', 'name');
+
+        // Reverse to chronological order
+        dbMessages.reverse();
+
+        const messagesForAI = dbMessages.map(m => ({
+          senderName: m.senderId ? m.senderId.name : 'Unknown',
+          text: m.text
+        }));
+
+        console.log(`🤖 Requesting Gemini suggestions for ${messagesForAI.length} messages...`);
+        // 6. Generate using Gemini
+        const suggestions = await geminiService.generateSuggestions(messagesForAI);
+        console.log('✅ Generated suggestions:', suggestions);
+
+        // 7. Save to cache
+        setSuggestionCache(chat._id, lastMessage._id, suggestions);
+
+        // 8. Emit to socket
+        socket.emit('chat:suggestions', { withUid, suggestions });
+
+      } catch (error) {
+        console.error('❌ Error in chat:suggestions:get:', error);
+        socket.emit('chat:suggestions', { withUid, error: error.message });
       }
     });
 

@@ -63,6 +63,67 @@ const checkUserExists = async (req, res) => {
   }
 };
 
+const getUserSettings = async (req, res) => {
+  const { uid } = req.params;
+  try {
+    const user = await User.findOne({ firebaseUid: uid });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const geminiConnected = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY';
+
+    res.status(200).json({
+      aiReplySuggestions: user.aiReplySuggestions !== undefined ? user.aiReplySuggestions : true,
+      autoReplyEnabled: user.autoReplyEnabled !== undefined ? user.autoReplyEnabled : false,
+      autoReplyLanguage: user.autoReplyLanguage || 'auto',
+      autoReplyStyle: user.autoReplyStyle || 'friendly',
+      geminiConnected
+    });
+  } catch (error) {
+    console.error('❌ Error fetching user settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const updateUserSettings = async (req, res) => {
+  const { uid } = req.params;
+  const { aiReplySuggestions, autoReplyEnabled, autoReplyLanguage, autoReplyStyle } = req.body;
+
+  const updateFields = {};
+  if (aiReplySuggestions !== undefined) updateFields.aiReplySuggestions = aiReplySuggestions;
+  if (autoReplyEnabled !== undefined) updateFields.autoReplyEnabled = autoReplyEnabled;
+  if (autoReplyLanguage !== undefined) updateFields.autoReplyLanguage = autoReplyLanguage;
+  if (autoReplyStyle !== undefined) updateFields.autoReplyStyle = autoReplyStyle;
+
+  try {
+    const user = await User.findOneAndUpdate(
+      { firebaseUid: uid },
+      { $set: updateFields },
+      { new: true }
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const geminiConnected = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY';
+
+    res.status(200).json({
+      success: true,
+      aiReplySuggestions: user.aiReplySuggestions,
+      autoReplyEnabled: user.autoReplyEnabled,
+      autoReplyLanguage: user.autoReplyLanguage,
+      autoReplyStyle: user.autoReplyStyle,
+      geminiConnected
+    });
+  } catch (error) {
+    console.error('❌ Error updating user settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
-  checkUserExists
+  checkUserExists,
+  getUserSettings,
+  updateUserSettings
 };

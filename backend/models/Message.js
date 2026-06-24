@@ -33,6 +33,10 @@ const messageSchema = new mongoose.Schema({
   replyCount: {
     type: Number,
     default: 0
+  },
+  isAutoReply: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
 

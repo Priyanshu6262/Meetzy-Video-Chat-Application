@@ -43,7 +43,25 @@ const userSchema = new mongoose.Schema({
   },
   blockedUsers: [{
     type: String // store firebaseUid of blocked users
-  }]
+  }],
+  aiReplySuggestions: {
+    type: Boolean,
+    default: true
+  },
+  autoReplyEnabled: {
+    type: Boolean,
+    default: false
+  },
+  autoReplyLanguage: {
+    type: String,
+    enum: ['auto', 'english', 'hinglish'],
+    default: 'auto'
+  },
+  autoReplyStyle: {
+    type: String,
+    enum: ['professional', 'friendly', 'casual'],
+    default: 'friendly'
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

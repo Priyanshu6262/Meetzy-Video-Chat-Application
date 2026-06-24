@@ -21,6 +21,16 @@ export const ChatProvider = ({ children }) => {
   const [threadData, setThreadData] = useState({});
   const [replyingTo, setReplyingTo] = useState(null);
 
+  // AI Suggestions and User Settings Preferences state
+  const [userPreferences, setUserPreferences] = useState({
+    aiReplySuggestions: true,
+    autoReplyEnabled: false,
+    autoReplyLanguage: 'auto',
+    autoReplyStyle: 'friendly',
+    geminiConnected: false
+  });
+  const [aiSuggestions, setAiSuggestions] = useState({ loading: false, data: null, error: null });
+
   const selectedUserRef = useRef(selectedUser);
   useEffect(() => { selectedUserRef.current = selectedUser; }, [selectedUser]);
 
@@ -98,12 +108,116 @@ export const ChatProvider = ({ children }) => {
       });
     });
 
+    newSocket.on('chat:suggestions', ({ withUid, suggestions, error }) => {
+      if (selectedUserRef.current?.uid === withUid) {
+        if (error) {
+          setAiSuggestions({ loading: false, data: null, error });
+        } else {
+          setAiSuggestions({ loading: false, data: suggestions, error: null });
+        }
+      }
+    });
+
     return () => {
       newSocket.disconnect();
       socketRef.current = null;
       setSocket(null);
     };
   }, [currentUser]);
+
+  // Load and update user preferences
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Quick load from local storage
+    const cachedPrefs = localStorage.getItem(`prefs_${currentUser.uid}`);
+    if (cachedPrefs) {
+      try {
+        setUserPreferences(JSON.parse(cachedPrefs));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    const fetchPreferences = async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+        const res = await fetch(`${baseUrl}/api/users/settings/${currentUser.uid}`);
+        if (res.ok) {
+          const data = await res.json();
+          setUserPreferences(data);
+          localStorage.setItem(`prefs_${currentUser.uid}`, JSON.stringify(data));
+        }
+      } catch (err) {
+        console.error('Error fetching user preferences:', err);
+      }
+    };
+
+    fetchPreferences();
+  }, [currentUser]);
+
+  const updateUserSettings = useCallback(async (newPrefs) => {
+    if (!currentUser) return;
+
+    // Optimistic local update
+    setUserPreferences(prev => {
+      const updated = { ...prev, ...newPrefs };
+      localStorage.setItem(`prefs_${currentUser.uid}`, JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+      const res = await fetch(`${baseUrl}/api/users/settings/${currentUser.uid}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newPrefs)
+      });
+      if (!res.ok) {
+        throw new Error('Failed to update settings on server');
+      }
+    } catch (err) {
+      console.error('Error updating settings:', err);
+    }
+  }, [currentUser]);
+
+  // Debounced effect for suggestions
+  useEffect(() => {
+    console.log('🔮 AI suggestions effect triggered. active chat:', selectedUser?.uid, 'suggestions enabled:', userPreferences.aiReplySuggestions);
+    if (!socket || !selectedUser || !userPreferences.aiReplySuggestions) {
+      setAiSuggestions({ loading: false, data: null, error: null });
+      return;
+    }
+
+    const chatMessages = messages[selectedUser.uid] || [];
+    console.log('🔮 Chat messages count:', chatMessages.length);
+    if (chatMessages.length === 0) {
+      setAiSuggestions({ loading: false, data: null, error: null });
+      return;
+    }
+
+    const lastMessage = chatMessages[chatMessages.length - 1];
+    console.log('🔮 Last message from:', lastMessage.from, 'current user:', currentUser?.uid, 'message text:', lastMessage.message);
+
+    // If last message is from current user, we don't need suggestions
+    if (lastMessage.from === currentUser?.uid) {
+      console.log('🔮 Last message is from myself. Clearing suggestions.');
+      setAiSuggestions({ loading: false, data: null, error: null });
+      return;
+    }
+
+    // Set loading state
+    setAiSuggestions(prev => ({ ...prev, loading: true }));
+
+    const timer = setTimeout(() => {
+      console.log('🔮 Emitting chat:suggestions:get for peer:', selectedUser.uid);
+      socket.emit('chat:suggestions:get', { withUid: selectedUser.uid });
+    }, 600); // 600ms debounce
+
+    return () => clearTimeout(timer);
+  }, [selectedUser, messages, userPreferences.aiReplySuggestions, socket, currentUser]);
 
   const selectUser = useCallback((user) => {
     setSelectedUser(user);
@@ -190,7 +304,10 @@ export const ChatProvider = ({ children }) => {
       setActiveThread,
       threadData,
       getThread,
-      socket
+      socket,
+      userPreferences,
+      updateUserSettings,
+      aiSuggestions
     }}>
       {children}
     </ChatContext.Provider>

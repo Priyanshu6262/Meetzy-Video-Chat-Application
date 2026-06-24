@@ -6,7 +6,7 @@ import EmojiPicker from './EmojiPicker';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import ConfirmModal from './ConfirmModal';
 import ThreadPopup from './ThreadPopup';
-import { Ban, Trash2, UserCircle, X, Video, PhoneMissed } from 'lucide-react';
+import { Ban, Trash2, UserCircle, X, Video, PhoneMissed, Sparkles } from 'lucide-react';
 import { useCall } from '../../context/CallContext';
 
 const Avatar = ({ src, name, size = 'md' }) => {
@@ -169,7 +169,7 @@ const EmptyState = () => (
 );
 
 const ChatWindow = ({ onBackClick }) => {
-  const { selectedUser, messages, typingFrom, sendMessage, setTyping, currentUser, clearChat, blockUser, replyingTo, setReplyingTo, activeThread, setActiveThread } = useChat();
+  const { selectedUser, messages, typingFrom, sendMessage, setTyping, currentUser, clearChat, blockUser, replyingTo, setReplyingTo, activeThread, setActiveThread, userPreferences, updateUserSettings, aiSuggestions } = useChat();
   const { initiateCall } = useCall();
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -177,6 +177,13 @@ const ChatWindow = ({ onBackClick }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isBlockConfirmOpen, setIsBlockConfirmOpen] = useState(false);
+  const [suggestionTab, setSuggestionTab] = useState('en');
+
+  useEffect(() => {
+    if (aiSuggestions?.data?.detectedLanguage) {
+      setSuggestionTab(aiSuggestions.data.detectedLanguage === 'hi' ? 'hi' : 'en');
+    }
+  }, [aiSuggestions?.data]);
 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -336,7 +343,36 @@ const ChatWindow = ({ onBackClick }) => {
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          {userPreferences && (
+            <button 
+              onClick={() => updateUserSettings({ autoReplyEnabled: !userPreferences.autoReplyEnabled })}
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                userPreferences.autoReplyEnabled 
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+              }`}
+              title="Toggle Auto Reply Automation"
+            >
+              <span className={`w-2 h-2 rounded-full ${userPreferences.autoReplyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span>Auto Reply {userPreferences.autoReplyEnabled ? 'Active' : 'Disabled'}</span>
+            </button>
+          )}
+
+          {userPreferences && (
+            <button 
+              onClick={() => updateUserSettings({ aiReplySuggestions: !userPreferences.aiReplySuggestions })}
+              className={`p-2 rounded-full transition-colors ${
+                userPreferences.aiReplySuggestions 
+                  ? 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20' 
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Toggle AI Suggestions"
+            >
+              <Sparkles className="w-5 h-5" />
+            </button>
+          )}
+
           <button 
             onClick={() => initiateCall(selectedUser)}
             className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800
@@ -371,6 +407,30 @@ const ChatWindow = ({ onBackClick }) => {
                   <UserCircle className="w-4 h-4 text-indigo-500" />
                   View/Edit Profile
                 </button>
+                {userPreferences && (
+                  <button
+                    onClick={() => { 
+                      updateUserSettings({ aiReplySuggestions: !userPreferences.aiReplySuggestions }); 
+                      setIsMenuOpen(false); 
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                  >
+                    <Sparkles className={`w-4 h-4 ${userPreferences.aiReplySuggestions ? 'text-indigo-500' : 'text-slate-400'}`} />
+                    <span>AI Suggestions: {userPreferences.aiReplySuggestions ? 'ON' : 'OFF'}</span>
+                  </button>
+                )}
+                {userPreferences && (
+                  <button
+                    onClick={() => { 
+                      updateUserSettings({ autoReplyEnabled: !userPreferences.autoReplyEnabled }); 
+                      setIsMenuOpen(false); 
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${userPreferences.autoReplyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                    <span>Auto Reply: {userPreferences.autoReplyEnabled ? 'ON' : 'OFF'}</span>
+                  </button>
+                )}
                 <button
                   onClick={() => { setIsClearConfirmOpen(true); setIsMenuOpen(false); }}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
@@ -435,6 +495,77 @@ const ChatWindow = ({ onBackClick }) => {
       {/* Input Bar */}
       <div className="flex-shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
         
+        {/* AI Reply Suggestions Container */}
+        {userPreferences?.aiReplySuggestions && (aiSuggestions.loading || aiSuggestions.data) && (
+          <div className="px-4 pt-3 pb-1 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                <span>AI Reply Suggestions</span>
+              </div>
+              
+              {/* Language Tabs */}
+              {aiSuggestions.data && (
+                <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-medium">
+                  <button
+                    onClick={() => setSuggestionTab('en')}
+                    className={`px-2 py-0.5 rounded-md transition-colors ${
+                      suggestionTab === 'en'
+                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm font-semibold'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    English {aiSuggestions.data.detectedLanguage === 'en' && '•'}
+                  </button>
+                  <button
+                    onClick={() => setSuggestionTab('hi')}
+                    className={`px-2 py-0.5 rounded-md transition-colors ${
+                      suggestionTab === 'hi'
+                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm font-semibold'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    Hinglish {aiSuggestions.data.detectedLanguage === 'hi' && '•'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Suggestions list */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none -mx-1 px-1">
+              {aiSuggestions.loading ? (
+                <>
+                  {[1, 2, 3].map(i => (
+                    <div
+                      key={i}
+                      className="flex-shrink-0 px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-full border border-slate-200/50 dark:border-slate-700/50 animate-pulse h-8 w-28"
+                    />
+                  ))}
+                </>
+              ) : (
+                <>
+                  {((suggestionTab === 'en' ? aiSuggestions.data.english : aiSuggestions.data.hinglish) || []).map((s, idx) => (
+                    <motion.button
+                      key={idx}
+                      whileTap={{ scale: 0.96 }}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      onClick={() => {
+                        setInput(s);
+                        inputRef.current?.focus();
+                      }}
+                      className="flex-shrink-0 px-3.5 py-1.5 bg-indigo-50/60 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 border border-indigo-100/80 dark:border-indigo-950/80 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-medium transition-colors shadow-sm select-none"
+                    >
+                      {s}
+                    </motion.button>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Reply Preview Box */}
         <AnimatePresence>
           {replyingTo && (
